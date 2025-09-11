@@ -1,0 +1,144 @@
+#define OFF_STATE          0
+#define NORMAL_STATE       1
+#define EMERGENCY_STOP     2
+
+
+#define ENTER   1
+#define GoOUT   0
+
+/*this var. carry the state that the MC is excuting*/
+
+uint8 CurrnetState = NORMAL_STATE;
+
+/*flag hold 1 -> excute Normal Mode or 0  O -> other mode*/
+
+uint8 TrafficIsON  = NORMAL_STATE;
+
+/*flag used to avoide continue in normal mode if  The mode is switched to other mode*/
+/*Enter  /  Goout*/
+
+uint8 NORMAL_STATE_ENTRANCE_FLAG = ENTER;
+
+
+
+void NormalStateOperation(void);
+void OffStateOperation(void);
+void EmergemcyStopOperation(void);
+
+int main(void)
+{
+  HAL_Init();
+
+  SystemClock_Config();
+
+  MX_GPIO_Init();
+
+  LCD16X2_Init(LCD16X2_1);
+
+  while (1)
+  {
+     /* the modes that run during runtime.
+        mode is selected in the interrupt section.  */
+	  switch(CurrnetState){
+	  case NORMAL_STATE   :  NormalStateOperation();     break;
+	  case OFF_STATE      :  OffStateOperation();        break;
+	  case EMERGENCY_STOP :  EmergemcyStopOperation();   break;
+	  }
+  }
+}
+
+
+/*Interrupt Handling section */
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
+	LCD16X2_Clear(LCD16X2_1);
+	switch(GPIO_Pin){
+    /*if the on/off is pressed*/
+
+	case Traffic_ON_OFF_Pin :
+		if((CurrnetState == NORMAL_STATE) || (CurrnetState == EMERGENCY_STOP)){
+			CurrnetState = OFF_STATE;
+		}else{
+			CurrnetState = NORMAL_STATE;
+		}
+		break;
+
+    /*if the EmergencyStop  is pressed*/
+	case Ergency_Button_Pin :
+		if(CurrnetState == NORMAL_STATE){
+			CurrnetState = EMERGENCY_STOP;
+		}else if(CurrnetState == EMERGENCY_STOP){
+			CurrnetState = NORMAL_STATE;
+		}else{CurrnetState = OFF_STATE;}
+		break;
+	default : {/*Nothing*/};
+	}
+}
+
+/*function used to print on the lcd during the normal mode*/
+
+void TrafficLCD(char *txt){
+	LCD16X2_Clear(LCD16X2_1);
+	LCD16X2_Set_Cursor(LCD16X2_1,1,1);
+	LCD16X2_Write_String(LCD16X2_1,"Traffic : ON ");
+	LCD16X2_Set_Cursor(LCD16X2_1,2,1);
+	LCD16X2_Write_String(LCD16X2_1,"Light : ");
+	LCD16X2_Set_Cursor(LCD16X2_1,2,9);
+	LCD16X2_Write_String(LCD16X2_1,txt);
+}
+
+/* solve the problem of delay when return from interrupt*/
+
+void SmartDelay(uint16 delay){
+	uint16 cnt = delay;
+	while(cnt--){
+		HAL_Delay(1);
+		if(CurrnetState != NORMAL_STATE){     /** if the during the interrupt function the Mode change from Normal mode the delay breaks and the NORMAL_STATE_ENTRANCE_FLAG is set to low to avoid entrnace to any function in the entrance function */
+		NORMAL_STATE_ENTRANCE_FLAG = GoOUT;
+		break;
+		}
+	}
+}
+
+
+/* function excute all normal mode functions for single led light 
+has EntranceFlag feature that prevent the entrance to the function if flag is OFF */
+
+void TrafficSequance(uint8 EntranceFlag,GPIO_TypeDef *Port , uint16_t Pin , char *txt){
+	if(EntranceFlag == ENTER){
+			HAL_GPIO_WritePin(Port, Pin, GPIO_PIN_SET);
+			TrafficLCD(txt);
+			SmartDelay(2000);
+			HAL_GPIO_WritePin(Port, Pin, GPIO_PIN_RESET);
+	}
+}
+
+
+/* function excute all led lights  */
+
+void NormalStateOperation(){
+	NORMAL_STATE_ENTRANCE_FLAG = ENTER;
+	TrafficSequance(NORMAL_STATE_ENTRANCE_FLAG,RED_LED_PORT,RED_LED_PIN,"RED");
+	TrafficSequance(NORMAL_STATE_ENTRANCE_FLAG,YELLOW_LED_PORT,YELLOW_LED_PIN,"YELLOW");
+	TrafficSequance(NORMAL_STATE_ENTRANCE_FLAG,GREEN_LED_PORT,GREEN_LED_PIN,"GREEN");
+}
+
+
+/*function excuted when ON/OFF button pressed*/
+
+void OffStateOperation(){
+	LCD16X2_Set_Cursor(LCD16X2_1,1,1);
+	LCD16X2_Write_String(LCD16X2_1,"Traffic : OFF ");
+	/*off all lights*/
+	HAL_GPIO_WritePin(RED_LED_PORT, RED_LED_PIN, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(YELLOW_LED_PORT, YELLOW_LED_PIN, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(GREEN_LED_PORT, GREEN_LED_PIN, GPIO_PIN_RESET);
+}
+
+
+/*function excuted when Emergency Stop button pressed*/
+
+void EmergemcyStopOperation(){
+	HAL_GPIO_WritePin(RED_LED_PORT, RED_LED_PIN, GPIO_PIN_SET);
+}
+
